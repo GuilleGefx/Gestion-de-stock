@@ -1,0 +1,1194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestor de Inventario</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- SheetJS (xlsx.full.min.js) for Excel and CSV handling -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Custom scrollbar for better aesthetics */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+        .modal-backdrop {
+            background-color: rgba(0,0,0,0.75);
+            transition: opacity 0.3s ease-in-out;
+        }
+        .notification-toast {
+            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
+        }
+    </style>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body class="bg-gray-900 text-white">
+
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-cyan-400">Gestor de Inventario</h1>
+            <p class="text-gray-400 mt-2">Busca, actualiza y solicita el stock de tus materiales en tiempo real.</p>
+        </header>
+
+        <!-- Inputs Section -->
+        <div class="mb-8 max-w-4xl mx-auto grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- Search Input -->
+            <div class="relative">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3">
+                    <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </span>
+                <input type="text" id="searchInput" placeholder="Buscar por Ítem, SKU..." class="w-full bg-gray-800 border border-gray-700 rounded-lg py-2 pl-10 pr-4 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition">
+            </div>
+            <!-- Order For Input -->
+            <input type="text" id="orderForInput" placeholder="Pedido para..." class="w-full bg-gray-800 border border-gray-700 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition">
+            <!-- Project Input -->
+            <input type="text" id="projectInput" placeholder="Obra..." class="w-full bg-gray-800 border border-gray-700 rounded-lg py-2 px-4 focus:outline-none focus:ring-2 focus:ring-cyan-500 transition">
+        </div>
+
+        <main class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Right Sidebar - Placed first in code for mobile view, but ordered last on large screens -->
+            <div class="space-y-8 lg:order-last">
+                <!-- Current Order -->
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Pedido Actual</h2>
+                    <div id="orderItemsList" class="space-y-2 max-h-64 md:max-h-48 overflow-y-auto mb-4">
+                        <!-- Order items will be injected here -->
+                    </div>
+                    <button id="placeOrderBtn" class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded-lg transition disabled:bg-gray-600 disabled:cursor-not-allowed">
+                        Realizar Pedido
+                    </button>
+                </div>
+
+                <!-- Order History -->
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+                        <h2 class="text-2xl font-semibold">Historial</h2>
+                        <button id="exportPdfBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-1 px-3 rounded-md text-sm transition disabled:bg-gray-600 disabled:cursor-not-allowed">
+                            Exportar PDF
+                        </button>
+                    </div>
+                    <div id="orderHistoryList" class="space-y-3 max-h-64 md:max-h-48 overflow-y-auto">
+                        <!-- History items will be injected here -->
+                    </div>
+                </div>
+
+                <!-- Dashboard / Chart -->
+                <div class="bg-gray-800 p-6 rounded-lg shadow-lg">
+                    <h2 class="text-2xl font-semibold mb-4 border-b border-gray-700 pb-2">Dashboard</h2>
+                    <p class="text-sm text-gray-400 mb-4">Items con stock bajo.</p>
+                    <div>
+                        <canvas id="lowStockChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Inventory List -->
+            <div class="lg:col-span-2 bg-gray-800 p-6 rounded-lg shadow-lg">
+                <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+                    <h2 class="text-2xl font-semibold">Listado de Materiales</h2>
+                    <div class="flex gap-2">
+                        <button id="createBtn" class="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-1 px-3 rounded-md text-sm transition">
+                            Crear
+                        </button>
+                        <button id="importCsvBtn" class="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-1 px-3 rounded-md text-sm transition">
+                            Importar
+                        </button>
+                        <input type="file" id="fileInput" class="hidden" accept=".csv, .xlsx">
+                        <button id="exportExcelBtn" class="bg-gray-600 hover:bg-gray-500 text-white font-semibold py-1 px-3 rounded-md text-sm transition">
+                            Exportar
+                        </button>
+                    </div>
+                </div>
+                <div id="itemList" class="space-y-4">
+                    <!-- Items will be injected here by JavaScript as accordions -->
+                </div>
+                 <div id="noResults" class="hidden text-center py-10 text-gray-500">
+                    <p>No se encontraron materiales que coincidan con la búsqueda.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Update Stock Modal -->
+    <div id="updateStockModal" class="fixed inset-0 flex items-center justify-center hidden modal-backdrop">
+        <div class="bg-gray-800 rounded-lg shadow-2xl p-8 w-full max-w-md border border-gray-700 transform transition-all scale-95 opacity-0" id="modalContentUpdate">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-2xl font-bold text-cyan-400">Actualizar Stock</h2>
+                <div class="flex items-center space-x-4">
+                    <!-- Icono de Bote de Basura (Eliminar) -->
+                    <button class="delete-material-btn text-red-400 hover:text-red-300 transition" id="deleteMaterialBtn" aria-label="Eliminar material">
+                        <i class="fas fa-trash-alt text-xl"></i>
+                    </button>
+                    <!-- Icono de Lápiz (Editar) -->
+                    <button class="edit-material-btn text-blue-400 hover:text-blue-300 mr-2 transition" id="editMaterialBtn" aria-label="Editar material">
+                        <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"></path>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+            <p class="mb-2"><strong>Ítem:</strong> <span id="modalItemNameUpdate" class="font-mono"></span></p>
+            <p class="mb-4"><strong>Stock Actual:</strong> <span id="modalCurrentStockUpdate" class="font-bold text-lg"></span></p>
+            <div>
+                <label for="quantityChange" class="block text-sm font-medium text-gray-300">Cantidad a agregar (+) o quitar (-)</label>
+                <input type="number" id="quantityChange" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Ej: 10, -5">
+            </div>
+            <div class="mt-4">
+                <label for="minStockInput" class="block text-sm font-medium text-gray-300">Stock Mínimo</label>
+                <input type="number" id="minStockInput" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Ej: 10" min="0">
+            </div>
+            <div class="mt-6 flex justify-end space-x-4">
+                <button class="close-modal-btn bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancelar</button>
+                <button id="confirmUpdateBtn" class="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-2 px-4 rounded-lg transition">Guardar</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Add to Order Modal -->
+    <div id="addToOrderModal" class="fixed inset-0 flex items-center justify-center hidden modal-backdrop">
+        <div class="bg-gray-800 rounded-lg shadow-2xl p-8 w-full max-w-md border border-gray-700 transform transition-all scale-95 opacity-0" id="modalContentOrder">
+             <h2 class="text-2xl font-bold text-green-400 mb-4">Añadir al Pedido</h2>
+             <p class="mb-2"><strong>Ítem:</strong> <span id="modalItemNameOrder" class="font-mono"></span></p>
+             <p class="mb-4"><strong>Stock Disponible:</strong> <span id="modalCurrentStockOrder" class="font-bold text-lg"></span></p>
+             <div>
+                 <label for="quantityToOrder" class="block text-sm font-medium text-gray-300">Cantidad a Pedir</label>
+                 <input type="number" id="quantityToOrder" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-green-500" placeholder="Ej: 5" min="1">
+             </div>
+             <div class="mt-6 flex justify-end space-x-4">
+                 <button class="close-modal-btn bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancelar</button>
+                 <button id="confirmOrderBtn" class="bg-green-600 hover:bg-green-500 text-white font-bold py-2 px-4 rounded-lg transition">Añadir</button>
+             </div>
+        </div>
+    </div>
+
+    <!-- Create New Material Modal -->
+    <div id="createMaterialModal" class="fixed inset-0 flex items-center justify-center hidden modal-backdrop">
+        <div class="bg-gray-800 rounded-lg shadow-2xl p-8 w-full max-w-md border border-gray-700 transform transition-all scale-95 opacity-0" id="modalContentCreate">
+            <h2 class="text-2xl font-bold text-yellow-400 mb-4">Crear Nuevo Material</h2>
+            <div class="space-y-4">
+                <div>
+                    <label for="newItem" class="block text-sm font-medium text-gray-300">Ítem (Categoría)</label>
+                    <input type="text" id="newItem" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Ej: Tornillos">
+                </div>
+                <div>
+                    <label for="newSku" class="block text-sm font-medium text-gray-300">SKU</label>
+                    <input type="text" id="newSku" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Ej: TRN-001">
+                </div>
+                <div>
+                    <label for="newBrand" class="block text-sm font-medium text-gray-300">Marca</label>
+                    <input type="text" id="newBrand" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Ej: Fischer">
+                </div>
+                <div>
+                    <label for="newDescription" class="block text-sm font-medium text-gray-300">Descripción</label>
+                    <input type="text" id="newDescription" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Ej: Tornillo para madera">
+                </div>
+                 <div>
+                    <label for="newUnit" class="block text-sm font-medium text-gray-300">Unidad</label>
+                    <input type="text" id="newUnit" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Ej: UNIDADES">
+                </div>
+                <div>
+                    <label for="newStock" class="block text-sm font-medium text-gray-300">Stock Inicial</label>
+                    <input type="number" id="newStock" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Ej: 100" min="0">
+                </div>
+                <div>
+                    <label for="newMinStock" class="block text-sm font-medium text-gray-300">Stock Mínimo</label>
+                    <input type="number" id="newMinStock" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-yellow-500" placeholder="Ej: 10" min="0">
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end space-x-4">
+                <button class="close-modal-btn bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancelar</button>
+                <button id="saveNewMaterialBtn" class="bg-yellow-600 hover:bg-yellow-500 text-white font-bold py-2 px-4 rounded-lg transition">Guardar</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Edit Material Modal -->
+    <div id="editMaterialModal" class="fixed inset-0 flex items-center justify-center hidden modal-backdrop">
+        <div class="bg-gray-800 rounded-lg shadow-2xl p-8 w-full max-w-md border border-gray-700 transform transition-all scale-95 opacity-0" id="modalContentEditMaterial">
+            <h2 class="text-2xl font-bold text-blue-400 mb-4">Editar Material</h2>
+            <p class="mb-2"><strong>ID:</strong> <span id="modalItemIdEditMaterial" class="font-mono text-sm text-gray-400"></span></p>
+            <div class="space-y-4">
+                <div>
+                    <label for="editItemNameInput" class="block text-sm font-medium text-gray-300">Nuevo nombre del ítem</label>
+                    <input type="text" id="editItemNameInput" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: Tubo de PVC">
+                </div>
+                 <div>
+                    <label for="editDescriptionInput" class="block text-sm font-medium text-gray-300">Nueva descripción</label>
+                    <input type="text" id="editDescriptionInput" class="w-full mt-1 bg-gray-700 border border-gray-600 rounded-md py-2 px-3 focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ej: Descripción detallada">
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end space-x-4">
+                <button class="close-modal-btn bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancelar</button>
+                <button id="confirmEditMaterialBtn" class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-2 px-4 rounded-lg transition">Guardar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal -->
+    <div id="confirmationModal" class="fixed inset-0 flex items-center justify-center hidden modal-backdrop">
+        <div class="bg-gray-800 rounded-lg shadow-2xl p-8 w-full max-w-sm border border-gray-700 transform transition-all scale-95 opacity-0" id="modalContentConfirm">
+            <h2 class="text-xl font-bold text-red-400 mb-4">Confirmar Eliminación</h2>
+            <p class="text-white mb-6">¿Estás seguro de que deseas eliminar este material? Esta acción es irreversible.</p>
+            <div class="flex justify-end space-x-4">
+                <button class="close-modal-btn bg-gray-600 hover:bg-gray-500 text-white font-bold py-2 px-4 rounded-lg transition">Cancelar</button>
+                <button id="confirmDeleteBtn" class="bg-red-600 hover:bg-red-500 text-white font-bold py-2 px-4 rounded-lg transition">Eliminar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Notification Toast -->
+    <div id="notificationToast" class="fixed bottom-5 right-5 bg-gray-700 text-white py-3 px-5 rounded-lg shadow-lg transform translate-y-20 opacity-0 notification-toast">
+        <p id="notificationMessage"></p>
+    </div>
+
+
+<script>
+    // --- DATA INITIALIZATION ---
+    // Agregamos el campo "MinStock" a cada item con un valor por defecto de 0
+    const materialData = [
+        {"Id":25705,"SKU":"02-01-006-000","Ítem":"ABRAZADERA PARA CAÑERIA","Marca":"NICZUK","Modelo":null,"Descripción":"ABRAZADERA (Ø1\"1/4\") C/AISL","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25706,"SKU":"02-01-006-001","Ítem":"ABRAZADERA PARA CAÑERIA","Marca":"NICZUK","Modelo":null,"Descripción":"ABRAZADERA LAGARTO","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25698,"SKU":"02-01-004-000","Ítem":"AISLACIÓN CAÑERIA","Marca":"ARMACELL","Modelo":null,"Descripción":"AISLACION (9x16) (VAINA)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25699,"SKU":"02-01-004-001","Ítem":"AISLACIÓN CAÑERIA","Marca":"ARMACELL","Modelo":null,"Descripción":"AISLACION (13x22) (VAINA)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25700,"SKU":"02-01-004-002","Ítem":"AISLACIÓN CAÑERIA","Marca":"ARMACELL","Modelo":null,"Descripción":"AISLACION (13x28) (VAINA)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25701,"SKU":"02-01-004-003","Ítem":"AISLACIÓN CAÑERIA","Marca":"ARMACELL","Modelo":null,"Descripción":"AISLACION (13x35) (VAINA)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25702,"SKU":"02-01-004-004","Ítem":"AISLACIÓN CAÑERIA","Marca":"ARMACELL","Modelo":null,"Descripción":"AISLACION (13x42) (VAINA)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25703,"SKU":"02-01-004-005","Ítem":"AISLACIÓN CAÑERIA","Marca":"ARMACELL","Modelo":null,"Descripción":"AISLACION (19x48) (VAINA)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25704,"SKU":"02-01-004-006","Ítem":"AISLACIÓN CAÑERIA","Marca":"ARMACELL","Modelo":null,"Descripción":"AISLACION (19x60) (VAINA)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25712,"SKU":"02-01-008-000","Ítem":"CABLE","Marca":"GENERICO","Modelo":null,"Descripción":"CABLE TIERRA (1x2","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25707,"SKU":"02-01-007-000","Ítem":"CAJA DE CONEXIONADO","Marca":"LEGRAND","Modelo":null,"Descripción":"CAJA CONEXIONADO (10x10)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25708,"SKU":"02-01-007-001","Ítem":"CAJA DE CONEXIONADO","Marca":"LEGRAND","Modelo":null,"Descripción":"CAJA CONEXIONADO (15x15)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25709,"SKU":"02-01-007-002","Ítem":"CAJA DE CONEXIONADO","Marca":"LEGRAND","Modelo":null,"Descripción":"CAJA CONEXIONADO (20x20)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25710,"SKU":"02-01-007-003","Ítem":"CAJA DE CONEXIONADO","Marca":"LEGRAND","Modelo":null,"Descripción":"CAJA CONEXIONADO (30x30)","Unidad":"UNidades","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25711,"SKU":"02-01-007-004","Ítem":"CAJA DE CONEXIONADO","Marca":"LEGRAND","Modelo":null,"Descripción":"CAJA CONEXIONADO (40x40)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25713,"SKU":"02-01-009-000","Ítem":"CAÑERIA DE COBRE","Marca":"GENERICO","Modelo":null,"Descripción":"CAÑERIA COBRE (1/4\")","Unidad":"UNIDADES","Stock":25,"Costo Unitario":0,"MinStock":0},
+        {"Id":25714,"SKU":"02-01-009-001","Ítem":"CAÑERIA DE COBRE","Marca":"GENERICO","Modelo":null,"Descripción":"CAÑERIA COBRE (3/8\")","Unidad":"UNIDADES","Stock":12,"Costo Unitario":0,"MinStock":0},
+        {"Id":25715,"SKU":"02-01-009-002","Ítem":"CAÑERIA DE COBRE","Marca":"GENERICO","Modelo":null,"Descripción":"CAÑERIA COBRE (1/2\")","Unidad":"UNIDADES","Stock":5,"Costo Unitario":0,"MinStock":0},
+        {"Id":25716,"SKU":"02-01-009-003","Ítem":"CAÑERIA DE COBRE","Marca":"GENERICO","Modelo":null,"Descripción":"CAÑERIA COBRE (5/8\")","Unidad":"UNIDADES","Stock":8,"Costo Unitario":0,"MinStock":0},
+        {"Id":25717,"SKU":"02-01-009-004","Ítem":"CAÑERIA DE COBRE","Marca":"GENERICO","Modelo":null,"Descripción":"CAÑERIA COBRE (3/4\")","Unidad":"UNIDADES","Stock":3,"Costo Unitario":0,"MinStock":0},
+        {"Id":25718,"SKU":"02-01-009-005","Ítem":"CAÑERIA DE COBRE","Marca":"GENERICO","Modelo":null,"Descripción":"CAÑERIA COBRE (7/8\")","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25719,"SKU":"02-01-009-006","Ítem":"CAÑERIA DE COBRE","Marca":"GENERICO","Modelo":null,"Descripción":"CAÑERIA COBRE (1 1/8\")","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25720,"SKU":"02-01-009-007","Ítem":"CAÑERIA DE COBRE","Marca":"GENERICO","Modelo":null,"Descripción":"CAÑERIA COBRE (1 3/8\")","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25721,"SKU":"02-01-009-008","Ítem":"CAÑERIA DE COBRE","Marca":"GENERICO","Modelo":null,"Descripción":"CAÑERIA COBRE (1 5/8\")","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":25722,"SKU":"02-01-010-000","Ítem":"CINTA","Marca":"GENERICA","Modelo":null,"Descripción":"CINTA AISLADORA","Unidad":"UNIDADES","Stock":50,"Costo Unitario":0,"MinStock":10},
+        {"Id":25723,"SKU":"02-01-010-001","Ítem":"CINTA","Marca":"GENERICA","Modelo":null,"Descripción":"CINTA PVC","Unidad":"UNIDADES","Stock":40,"Costo Unitario":0,"MinStock":10},
+        {"Id":26082,"SKU":"02-07-068-000","Ítem":"VENTS SERIE VKM","Marca":"VENTS","Modelo":null,"Descripción":"VKM 100 (250 m3/h)","Unidad":"UNIDADES","Stock":15,"Costo Unitario":21500,"MinStock":5},
+        {"Id":26083,"SKU":"02-07-068-001","Ítem":"VENTS SERIE VKM","Marca":"VENTS","Modelo":null,"Descripción":"VKM 125 (365 m3/h)","Unidad":"UNIDADES","Stock":11,"Costo Unitario":22167,"MinStock":5},
+        {"Id":26084,"SKU":"02-07-068-002","Ítem":"VENTS SERIE VKM","Marca":"VENTS","Modelo":null,"Descripción":"VKM 150 (560 m3/h)","Unidad":"UNIDADES","Stock":4,"Costo Unitario":23667,"MinStock":5},
+        {"Id":26085,"SKU":"02-07-068-003","Ítem":"VENTS SERIE VKM","Marca":"VENTS","Modelo":null,"Descripción":"VKM 200 (780 m3/h)","Unidad":"UNIDADES","Stock":2,"Costo Unitario":28833,"MinStock":5},
+        {"Id":26086,"SKU":"02-07-068-004","Ítem":"VENTS SERIE VKM","Marca":"VENTS","Modelo":null,"Descripción":"VKM 250 (1080 m3/h)","Unidad":"UNIDADES","Stock":9,"Costo Unitario":34567,"MinStock":5},
+        {"Id":26087,"SKU":"02-07-068-005","Ítem":"VENTS SERIE VKM","Marca":"VENTS","Modelo":null,"Descripción":"VKM 315 (1700 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":35933,"MinStock":5},
+        {"Id":26088,"SKU":"02-07-069-000","Ítem":"VENTS SERIE VK","Marca":"VENTS","Modelo":null,"Descripción":"VK 100 (250 m3/h)","Unidad":"UNIDADES","Stock":33,"Costo Unitario":16600,"MinStock":10},
+        {"Id":26089,"SKU":"02-07-069-001","Ítem":"VENTS SERIE VK","Marca":"VENTS","Modelo":null,"Descripción":"VK 125 (365 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":17600,"MinStock":10},
+        {"Id":26090,"SKU":"02-07-069-002","Ítem":"VENTS SERIE VK","Marca":"VENTS","Modelo":null,"Descripción":"VK 250 (1080 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":26333,"MinStock":10},
+        {"Id":26091,"SKU":"02-07-070-001","Ítem":"VENTS SERIE VKPF","Marca":"VENTS","Modelo":null,"Descripción":"VKPF 4E 500 300 (2350 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":26092,"SKU":"02-07-070-001","Ítem":"VENTS SERIE VKPF","Marca":"VENTS","Modelo":null,"Descripción":"VKPF 4E 600 300 (2950 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":26093,"SKU":"02-07-070-002","Ítem":"VENTS SERIE VKPF","Marca":"VENTS","Modelo":null,"Descripción":"VKPF 4E 600 350 (4260 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":26094,"SKU":"02-07-070-003","Ítem":"VENTS SERIE VKPF","Marca":"VENTS","Modelo":null,"Descripción":"VKPF 4D 600 350 (5020 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":26095,"SKU":"02-07-070-004","Ítem":"VENTS SERIE VKPF","Marca":"VENTS","Modelo":null,"Descripción":"VKPF 6D 600 350 (6450 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":26096,"SKU":"02-07-070-005","Ítem":"VENTS SERIE VKPF","Marca":"VENTS","Modelo":null,"Descripción":"VKPF 4D 700 400 (3310 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0},
+        {"Id":26097,"SKU":"02-07-070-006","Ítem":"VENTS SERIE VKPF","Marca":"VENTS","Modelo":null,"Descripción":"VKPF 8D 800 500 (5620 m3/h)","Unidad":"UNIDADES","Stock":0,"Costo Unitario":0,"MinStock":0}
+    ];
+
+    let inventory = [];
+    let currentOrder = [];
+    let orderHistory = [];
+    let lowStockChartInstance = null;
+    
+    // Palabras clave para agrupar categorías
+    const categoryKeywords = ["Abrazadera", "Aislación", "Cable", "Caja", "Cañeria", "Cinta", "Vents"];
+
+    // --- DOM ELEMENTS ---
+    const itemList = document.getElementById('itemList');
+    const searchInput = document.getElementById('searchInput');
+    const orderForInput = document.getElementById('orderForInput');
+    const projectInput = document.getElementById('projectInput');
+    const noResults = document.getElementById('noResults');
+    const orderItemsList = document.getElementById('orderItemsList');
+    const placeOrderBtn = document.getElementById('placeOrderBtn');
+    const orderHistoryList = document.getElementById('orderHistoryList');
+    const exportPdfBtn = document.getElementById('exportPdfBtn');
+    
+    // Nuevo botón para exportar a Excel
+    const exportExcelBtn = document.getElementById('exportExcelBtn');
+    // Nuevo botón e input para importar
+    const importCsvBtn = document.getElementById('importCsvBtn');
+    const fileInput = document.getElementById('fileInput');
+    // Nuevo botón para crear
+    const createBtn = document.getElementById('createBtn');
+
+    // Modals
+    const updateStockModal = document.getElementById('updateStockModal');
+    const addToOrderModal = document.getElementById('addToOrderModal');
+    const createMaterialModal = document.getElementById('createMaterialModal');
+    const editMaterialModal = document.getElementById('editMaterialModal'); // Nuevo modal
+    const confirmationModal = document.getElementById('confirmationModal');
+    const modalContentUpdate = document.getElementById('modalContentUpdate');
+    const modalContentOrder = document.getElementById('modalContentOrder');
+    const modalContentCreate = document.getElementById('modalContentCreate');
+    const modalContentEditMaterial = document.getElementById('modalContentEditMaterial'); // Contenido del nuevo modal
+    const modalContentConfirm = document.getElementById('modalContentConfirm');
+    
+    const confirmUpdateBtn = document.getElementById('confirmUpdateBtn');
+    const confirmEditMaterialBtn = document.getElementById('confirmEditMaterialBtn'); // Nuevo botón para guardar nombre
+    const confirmOrderBtn = document.getElementById('confirmOrderBtn');
+    const saveNewMaterialBtn = document.getElementById('saveNewMaterialBtn');
+    const confirmDeleteBtn = document.getElementById('confirmDeleteBtn');
+
+    const notificationToast = document.getElementById('notificationToast');
+    const notificationMessage = document.getElementById('notificationMessage');
+    
+    const minStockInput = document.getElementById('minStockInput');
+    const editMaterialBtn = document.getElementById('editMaterialBtn');
+    const deleteMaterialBtn = document.getElementById('deleteMaterialBtn'); // Nuevo botón de eliminar
+
+    
+    // Inputs del nuevo material
+    const newItemInput = document.getElementById('newItem');
+    const newSkuInput = document.getElementById('newSku');
+    const newBrandInput = document.getElementById('newBrand');
+    const newDescriptionInput = document.getElementById('newDescription');
+    const newUnitInput = document.getElementById('newUnit');
+    const newStockInput = document.getElementById('newStock');
+    const newMinStockInput = document.getElementById('newMinStock');
+
+    // Input del modal de editar nombre
+    const editItemNameInput = document.getElementById('editItemNameInput');
+    const editDescriptionInput = document.getElementById('editDescriptionInput');
+
+    // --- FUNCTIONS ---
+
+    function initializeApp() {
+        const savedInventory = localStorage.getItem('inventoryData');
+        if (savedInventory) {
+            inventory = JSON.parse(savedInventory);
+        } else {
+            inventory = materialData.map(item => ({
+                ...item,
+                MinStock: item.MinStock || 0
+            }));
+            saveInventory();
+        }
+        
+        const savedHistory = localStorage.getItem('orderHistory');
+        if (savedHistory) {
+            orderHistory = JSON.parse(savedHistory);
+        }
+
+        renderAll();
+    }
+
+    function saveInventory() {
+        localStorage.setItem('inventoryData', JSON.stringify(inventory));
+    }
+
+    function saveOrderHistory() {
+        localStorage.setItem('orderHistory', JSON.stringify(orderHistory));
+    }
+    
+    function renderAll() {
+        handleSearch();
+        renderOrderList();
+        renderOrderHistory();
+        renderLowStockChart();
+    }
+
+    // Nueva lógica de agrupamiento inteligente de categorías
+    function agruparCategorias(items) {
+        const categoriasAgrupadas = {};
+        const otherItems = [];
+        const ignoredWords = ["de", "para", "serie"]; // Palabras comunes a ignorar
+
+        // Paso 1: Agrupar por palabras clave predefinidas
+        items.forEach(item => {
+            const itemNombre = item['Ítem'].toLowerCase();
+            let matched = false;
+            for (const keyword of categoryKeywords) {
+                if (itemNombre.includes(keyword.toLowerCase())) {
+                    if (!categoriasAgrupadas[keyword]) {
+                        categoriasAgrupadas[keyword] = [];
+                    }
+                    categoriasAgrupadas[keyword].push(item);
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                otherItems.push(item);
+            }
+        });
+
+        // Paso 2: Analizar y agrupar los items de "Otros"
+        if (otherItems.length > 0) {
+            const wordCount = {};
+            otherItems.forEach(item => {
+                const words = item['Ítem'].toLowerCase().split(' ').filter(word => !ignoredWords.includes(word) && word.length > 2);
+                words.forEach(word => {
+                    wordCount[word] = (wordCount[word] || 0) + 1;
+                });
+            });
+
+            const dynamicKeywords = Object.keys(wordCount).filter(word => wordCount[word] > 1);
+
+            // Agrupar los items de "Otros" en categorías dinámicas
+            const finalOtherItems = [];
+            otherItems.forEach(item => {
+                const itemNombre = item['Ítem'].toLowerCase();
+                let matched = false;
+                for (const keyword of dynamicKeywords) {
+                    if (itemNombre.includes(keyword)) {
+                        const capitalizedKeyword = keyword.charAt(0).toUpperCase() + keyword.slice(1);
+                        if (!categoriasAgrupadas[capitalizedKeyword]) {
+                            categoriasAgrupadas[capitalizedKeyword] = [];
+                        }
+                        categoriasAgrupadas[capitalizedKeyword].push(item);
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched) {
+                    finalOtherItems.push(item);
+                }
+            });
+
+            // Asignar los items restantes a la categoría "Otros"
+            if (finalOtherItems.length > 0) {
+                categoriasAgrupadas['Otros'] = finalOtherItems;
+            }
+        }
+        
+        return categoriasAgrupadas;
+    }
+
+    function renderItemList(itemsToRender) {
+        itemList.innerHTML = '';
+        noResults.classList.toggle('hidden', itemsToRender.length > 0);
+
+        const searchTerm = searchInput.value.trim().toLowerCase();
+        const isSearching = searchTerm.length > 0;
+        
+        // Agrupar items con la nueva función
+        const groupedItems = agruparCategorias(itemsToRender);
+        const sortedGroups = Object.keys(groupedItems).sort();
+
+        sortedGroups.forEach(groupName => {
+            const items = groupedItems[groupName];
+            const accordionId = `category-${groupName.replace(/[^a-zA-Z0-9]/g, '')}`;
+
+            const isExpanded = isSearching ? true : false;
+
+            const categoryHtml = `
+                <div class="bg-gray-700/50 rounded-lg overflow-hidden">
+                    <button class="category-header w-full text-left p-4 flex justify-between items-center hover:bg-gray-700 transition" data-target="#${accordionId}">
+                        <h3 class="font-semibold text-lg text-cyan-300">${groupName} (${items.length})</h3>
+                        <svg class="w-6 h-6 transform transition-transform chevron ${isExpanded ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                    </button>
+                    <div id="${accordionId}" class="category-content ${isExpanded ? '' : 'hidden'} p-4 pt-0">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            ${items.map(item => {
+                                const stockColor = item.Stock <= 0 ? 'text-red-400' : (item.Stock < item.MinStock ? 'text-yellow-400' : 'text-green-400');
+                                return `
+                                    <div class="bg-gray-700 p-4 rounded-lg flex flex-col justify-between shadow-md relative">
+                                        <div>
+                                            <h3 class="font-bold text-sm text-gray-400">${item['Ítem']}</h3>
+                                            <p class="text-white text-base mt-1">${item['Descripción'] || 'Sin descripción'}</p>
+                                            <p class="text-xs text-gray-500 font-mono">SKU: ${item.SKU}</p>
+                                        </div>
+                                        <div class="mt-4 flex flex-col space-y-2 sm:flex-row sm:space-y-0 sm:justify-between sm:items-center">
+                                            <div class="text-sm md:text-lg">
+                                                Stock: <span class="font-bold ${stockColor}">${item.Stock}</span>
+                                                ${item.MinStock > 0 ? `<p class="text-gray-400 text-xs mt-1">Mín: ${item.MinStock}</p>` : ''}
+                                            </div>
+                                            <div class="flex space-x-2">
+                                                <button class="bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-1 px-3 rounded-md text-sm transition w-full sm:w-auto" onclick="openUpdateModal(${item.Id})">
+                                                    Actualizar
+                                                </button>
+                                                <button class="bg-green-600 hover:bg-green-500 text-white font-semibold py-1 px-3 rounded-md text-sm transition w-full sm:w-auto" onclick="openAddToOrderModal(${item.Id})" ${item.Stock <= 0 ? 'disabled style="background-color: #4B5563; cursor: not-allowed;"' : ''}>
+                                                    Pedir
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                `;
+                            }).join('')}
+                        </div>
+                    </div>
+                </div>
+            `;
+            itemList.insertAdjacentHTML('beforeend', categoryHtml);
+        });
+    }
+
+    function renderOrderList() {
+        orderItemsList.innerHTML = '';
+        if (currentOrder.length === 0) {
+            orderItemsList.innerHTML = `<p class="text-gray-500 text-sm text-center">Aún no hay items en el pedido.</p>`;
+            placeOrderBtn.disabled = true;
+            return;
+        }
+        
+        placeOrderBtn.disabled = false;
+        currentOrder.forEach(orderItem => {
+            const orderElement = `
+                <div class="flex justify-between items-center text-sm p-2 bg-gray-700 rounded-md">
+                    <span class="flex-1 pr-2">${orderItem.name}</span>
+                    <span class="font-bold">Cant: ${orderItem.quantity}</span>
+                    <button onclick="removeFromOrder(${orderItem.id})" class="ml-4 text-red-400 hover:text-red-300 font-bold">&times;</button>
+                </div>
+            `;
+            orderItemsList.insertAdjacentHTML('beforeend', orderElement);
+        });
+    }
+
+    function renderOrderHistory() {
+        orderHistoryList.innerHTML = '';
+        if (orderHistory.length === 0) {
+            orderHistoryList.innerHTML = `<p class="text-gray-500 text-sm text-center">No hay pedidos en el historial.</p>`;
+            exportPdfBtn.disabled = true;
+            return;
+        }
+        
+        exportPdfBtn.disabled = false;
+        orderHistory.forEach(order => {
+            const itemsHtml = order.items.map(item => `
+                <li class="flex justify-between text-xs ml-4">
+                    <span>- ${item.name}</span>
+                    <span>Cant: ${item.quantity}</span>
+                </li>
+            `).join('');
+
+            const historyElement = `
+                <div class="text-sm p-2 bg-gray-700 rounded-md">
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <p class="font-bold">Pedido del ${order.date}</p>
+                            ${order.orderFor ? `<p class="text-xs text-gray-400">Para: ${order.orderFor}</p>` : ''}
+                            ${order.project ? `<p class="text-xs text-gray-400">Obra: ${order.project}</p>` : ''}
+                        </div>
+                        <div class="flex space-x-2 flex-shrink-0 ml-2">
+                            <button onclick="handleEditOrder(${order.id})" class="text-yellow-400 hover:text-yellow-300 text-xs font-semibold p-1">Editar</button>
+                            <button onclick="handleDeleteOrder(${order.id})" class="text-red-400 hover:text-red-300 text-xs font-semibold p-1">Eliminar</button>
+                        </div>
+                    </div>
+                    <ul class="mt-1 space-y-1">${itemsHtml}</ul>
+                </div>
+            `;
+            orderHistoryList.insertAdjacentHTML('beforeend', historyElement);
+        });
+    }
+
+    function handleSearch() {
+        const searchTerm = searchInput.value.toLowerCase();
+        const filteredItems = inventory.filter(item => 
+            (item['Ítem']?.toLowerCase() || '').includes(searchTerm) ||
+            (item.SKU?.toLowerCase() || '').includes(searchTerm) ||
+            (item['Descripción']?.toLowerCase() || '').includes(searchTerm)
+        );
+        renderItemList(filteredItems);
+    }
+    
+    // --- MODAL HANDLING ---
+    function openModal(modal, content, itemId, type) {
+        modal.dataset.itemId = itemId;
+
+        if (type === 'update' || type === 'order' || type === 'edit-material') {
+            const item = inventory.find(i => i.Id === itemId);
+            if (!item) return; // Exit if item is not found
+            if (type === 'update') {
+                document.getElementById('modalItemNameUpdate').textContent = item['Ítem'];
+                document.getElementById('modalCurrentStockUpdate').textContent = item.Stock;
+                document.getElementById('quantityChange').value = '';
+                minStockInput.value = item.MinStock;
+            } else if (type === 'order') {
+                document.getElementById('modalItemNameOrder').textContent = item['Ítem'];
+                document.getElementById('modalCurrentStockOrder').textContent = item.Stock;
+                const quantityInput = document.getElementById('quantityToOrder');
+                quantityInput.value = '1';
+                quantityInput.max = item.Stock;
+            } else if (type === 'edit-material') {
+                document.getElementById('modalItemIdEditMaterial').textContent = item.Id;
+                editItemNameInput.value = item['Ítem'];
+                editDescriptionInput.value = item['Descripción'];
+            }
+        }
+        
+        modal.classList.remove('hidden');
+        setTimeout(() => content.classList.remove('scale-95', 'opacity-0'), 10);
+    }
+
+    function closeModal(modal, content) {
+        content.classList.add('scale-95', 'opacity-0');
+        setTimeout(() => modal.classList.add('hidden'), 200);
+    }
+
+    window.openUpdateModal = (itemId) => openModal(updateStockModal, modalContentUpdate, itemId, 'update');
+    window.openAddToOrderModal = (itemId) => openModal(addToOrderModal, modalContentOrder, itemId, 'order');
+    window.openEditMaterialModal = (itemId) => openModal(editMaterialModal, modalContentEditMaterial, itemId, 'edit-material');
+    window.openCreateModal = () => {
+        newItemInput.value = '';
+        newSkuInput.value = '';
+        newBrandInput.value = '';
+        newDescriptionInput.value = '';
+        newUnitInput.value = '';
+        newStockInput.value = '';
+        newMinStockInput.value = '';
+        openModal(createMaterialModal, modalContentCreate, null, 'create');
+    };
+    
+    window.confirmDelete = (itemId) => {
+        confirmationModal.dataset.itemId = itemId;
+        openModal(confirmationModal, modalContentConfirm, itemId, 'confirm');
+    };
+    
+    // --- STOCK & ORDER LOGIC ---
+    function handleStockUpdate() {
+        const itemId = parseInt(updateStockModal.dataset.itemId, 10);
+        const quantityChange = parseInt(document.getElementById('quantityChange').value, 10);
+        const newMinStock = parseInt(minStockInput.value, 10);
+
+        if (isNaN(quantityChange) && isNaN(newMinStock)) {
+            showNotification('Por favor, introduce al menos un número válido.', true);
+            return;
+        }
+
+        const itemIndex = inventory.findIndex(i => i.Id === itemId);
+        if (itemIndex > -1) {
+            if (!isNaN(quantityChange)) {
+                inventory[itemIndex].Stock += quantityChange;
+                if (inventory[itemIndex].Stock < 0) inventory[itemIndex].Stock = 0;
+            }
+            if (!isNaN(newMinStock) && newMinStock >= 0) {
+                inventory[itemIndex].MinStock = newMinStock;
+            } else if (newMinStock < 0) {
+                showNotification('El stock mínimo no puede ser negativo.', true);
+                return;
+            }
+            
+            saveInventory();
+            renderAll();
+            showNotification('Stock y/o stock mínimo actualizados correctamente.');
+        }
+        closeModal(updateStockModal, modalContentUpdate);
+    }
+
+    function handleEditMaterial() {
+        const itemId = parseInt(editMaterialModal.dataset.itemId, 10);
+        const newName = editItemNameInput.value.trim();
+        const newDescription = editDescriptionInput.value.trim();
+
+        if (newName === '') {
+            showNotification('El nombre del material no puede estar vacío.', true);
+            return;
+        }
+
+        const itemIndex = inventory.findIndex(i => i.Id === itemId);
+        if (itemIndex > -1) {
+            inventory[itemIndex]['Ítem'] = newName;
+            inventory[itemIndex]['Descripción'] = newDescription;
+            saveInventory();
+            renderAll();
+            showNotification(`Material "${newName}" actualizado correctamente.`);
+        }
+        closeModal(editMaterialModal, modalContentEditMaterial);
+    }
+    
+    function handleAddToOrder() {
+        const itemId = parseInt(addToOrderModal.dataset.itemId, 10);
+        const quantity = parseInt(document.getElementById('quantityToOrder').value, 10);
+        const item = inventory.find(i => i.Id === itemId);
+
+        if (!item || isNaN(quantity) || quantity <= 0) {
+            showNotification('Cantidad inválida.', true);
+            return;
+        }
+        if (quantity > item.Stock) {
+            showNotification('No puedes pedir más de lo que hay en stock.', true);
+            return;
+        }
+
+        const existingOrderItem = currentOrder.find(i => i.id === itemId);
+        if (existingOrderItem) {
+            existingOrderItem.quantity += quantity;
+        } else {
+            currentOrder.push({ id: itemId, name: item['Ítem'], quantity: quantity });
+        }
+        
+        showNotification(`${quantity} x ${item['Ítem']} añadido al pedido.`);
+        renderOrderList();
+        closeModal(addToOrderModal, modalContentOrder);
+    }
+    
+    window.removeFromOrder = (itemId) => {
+        currentOrder = currentOrder.filter(item => item.id !== itemId);
+        renderOrderList();
+    };
+
+    function handlePlaceOrder() {
+        const orderFor = orderForInput.value.trim();
+        const project = projectInput.value.trim();
+        if (currentOrder.length === 0) return;
+        if (!orderFor || !project) {
+            showNotification('Por favor, completa los campos "Pedido para" y "Obra".', true);
+            return;
+        }
+
+        const newOrderRecord = {
+            id: Date.now(),
+            date: new Date().toLocaleString('es-ES'),
+            orderFor: orderForInput.value.trim(),
+            project: projectInput.value.trim(),
+            items: JSON.parse(JSON.stringify(currentOrder))
+        };
+        orderHistory.unshift(newOrderRecord);
+        saveOrderHistory();
+        
+        currentOrder.forEach(orderItem => {
+            const itemIndex = inventory.findIndex(invItem => invItem.Id === orderItem.id);
+            if (itemIndex > -1) {
+                inventory[itemIndex].Stock -= orderItem.quantity;
+            }
+        });
+
+        saveInventory();
+        showNotification('Pedido realizado con éxito. El stock ha sido actualizado.', false);
+        currentOrder = [];
+        orderForInput.value = '';
+        projectInput.value = '';
+        renderAll();
+    }
+
+    window.handleDeleteOrder = (orderId) => {
+        const orderIndex = orderHistory.findIndex(order => order.id === orderId);
+        if (orderIndex === -1) return;
+
+        const orderToDelete = orderHistory[orderIndex];
+
+        orderToDelete.items.forEach(orderItem => {
+            const inventoryItem = inventory.find(invItem => invItem.Id === orderItem.id);
+            if (inventoryItem) {
+                inventoryItem.Stock += orderItem.quantity;
+            }
+        });
+
+        orderHistory.splice(orderIndex, 1);
+
+        saveInventory();
+        saveOrderHistory();
+        renderAll();
+        showNotification('Pedido eliminado y stock restaurado.');
+    };
+
+    window.handleEditOrder = (orderId) => {
+        const orderIndex = orderHistory.findIndex(order => order.id === orderId);
+        if (orderIndex === -1) return;
+
+        if (currentOrder.length > 0) {
+            showNotification('Finaliza o vacía tu pedido actual antes de editar uno del historial.', true);
+            return;
+        }
+
+        const orderToEdit = orderHistory[orderIndex];
+
+        orderToEdit.items.forEach(orderItem => {
+            const inventoryItem = inventory.find(invItem => invItem.Id === orderItem.id);
+            if (inventoryItem) {
+                inventoryItem.Stock += orderItem.quantity;
+            }
+        });
+
+        currentOrder = JSON.parse(JSON.stringify(orderToEdit.items));
+        orderForInput.value = orderToEdit.orderFor || '';
+        projectInput.value = orderToEdit.project || '';
+
+        orderHistory.splice(orderIndex, 1);
+
+        saveInventory();
+        saveOrderHistory();
+        renderAll();
+        showNotification('Pedido cargado para edición. Realiza tus cambios y guárdalo de nuevo.');
+    };
+
+    function handleDeleteMaterial() {
+        const itemId = parseInt(confirmationModal.dataset.itemId, 10);
+        const itemIndex = inventory.findIndex(i => i.Id === itemId);
+        if (itemIndex > -1) {
+            const deletedItem = inventory[itemIndex]['Ítem'];
+            inventory.splice(itemIndex, 1);
+            saveInventory();
+            renderAll();
+            showNotification(`Material "${deletedItem}" eliminado correctamente.`);
+        }
+        closeModal(confirmationModal, modalContentConfirm);
+    }
+    
+    function handleCreateMaterial() {
+        const newName = newItemInput.value.trim();
+        const newSku = newSkuInput.value.trim();
+        const newBrand = newBrandInput.value.trim();
+        const newDescription = newDescriptionInput.value.trim();
+        const newUnit = newUnitInput.value.trim();
+        const newStock = parseInt(newStockInput.value, 10);
+        const newMinStock = parseInt(newMinStockInput.value, 10);
+
+        if (!newName || !newSku || isNaN(newStock)) {
+            showNotification('Los campos "Ítem", "SKU" y "Stock Inicial" son obligatorios.', true);
+            return;
+        }
+
+        // Validación para evitar SKU duplicados
+        const isSkuDuplicate = inventory.some(item => item.SKU.toLowerCase() === newSku.toLowerCase());
+        if (isSkuDuplicate) {
+            showNotification('El SKU ya existe. Por favor, usa un SKU único.', true);
+            return;
+        }
+        
+        // --- LÓGICA DE ASIGNACIÓN DE CATEGORÍA MEJORADA ---
+        // 1. Obtiene las categorías existentes, preservando las mayúsculas/minúsculas originales.
+        const existingCategories = [...new Set(inventory.map(item => item['Ítem']))];
+        let matchedCategory = null;
+        
+        // 2. Comprueba si el nuevo nombre del ítem es una coincidencia exacta de una categoría (insensible a mayúsculas).
+        const newNameLower = newName.toLowerCase();
+        for (const category of existingCategories) {
+            if (category.toLowerCase() === newNameLower) {
+                matchedCategory = category;
+                break;
+            }
+        }
+        
+        // 3. Si no hay coincidencia exacta, comprueba si el nombre del ítem o la descripción contienen el nombre de una categoría existente.
+        if (!matchedCategory) {
+            const newDescriptionLower = newDescription.toLowerCase();
+            for (const category of existingCategories) {
+                const categoryLower = category.toLowerCase();
+                if (newNameLower.includes(categoryLower) || newDescriptionLower.includes(categoryLower)) {
+                    matchedCategory = category;
+                    break;
+                }
+            }
+        }
+
+        const finalCategory = matchedCategory || newName;
+        
+        const newId = inventory.length > 0 ? Math.max(...inventory.map(item => item.Id)) + 1 : 1;
+
+        const newMaterial = {
+            Id: newId,
+            SKU: newSku,
+            'Ítem': finalCategory,
+            Marca: newBrand || null,
+            Modelo: null,
+            Descripción: newDescription || null,
+            Unidad: newUnit || null,
+            Stock: newStock,
+            'Costo Unitario': 0,
+            MinStock: isNaN(newMinStock) ? 0 : newMinStock
+        };
+
+        inventory.push(newMaterial);
+        saveInventory();
+        renderAll();
+        showNotification(`Material "${newName}" creado correctamente.`);
+        closeModal(createMaterialModal, modalContentCreate);
+    }
+    
+    // --- CSV IMPORT/EXPORT, PDF & NOTIFICATIONS ---
+
+    // Función para exportar a Excel (usando SheetJS)
+    function exportInventoryToExcel() {
+        if (inventory.length === 0) {
+            showNotification('No hay inventario para exportar.', true);
+            return;
+        }
+
+        // Prepara los datos para la hoja de cálculo
+        const data = inventory.map(item => {
+            return {
+                Id: item.Id,
+                SKU: item.SKU,
+                'Ítem': item['Ítem'],
+                Marca: item.Marca,
+                Modelo: item.Modelo,
+                Descripción: item.Descripción,
+                Unidad: item.Unidad,
+                Stock: item.Stock,
+                'Costo Unitario': item['Costo Unitario'],
+                MinStock: item.MinStock
+            };
+        });
+
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Inventario");
+        XLSX.writeFile(wb, "inventario.xlsx");
+        showNotification('Inventario exportado a Excel con éxito.');
+    }
+
+    // Lógica de importación mejorada para usar la misma librería que la exportación (SheetJS)
+    function importInventoryFromCsv(event) {
+        const file = event.target.files[0];
+        if (!file) {
+            showNotification('No se ha seleccionado ningún archivo.', true);
+            return;
+        }
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            const data = e.target.result;
+            const workbook = XLSX.read(data, { type: 'binary' });
+            const sheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[sheetName];
+            const importedJson = XLSX.utils.sheet_to_json(worksheet);
+
+            if (importedJson.length === 0) {
+                showNotification('El archivo está vacío o no tiene datos válidos.', true);
+                return;
+            }
+
+            // Mapea los campos importados a la estructura de inventario
+            const newInventory = importedJson.map(row => ({
+                Id: parseInt(row.Id, 10) || 0,
+                SKU: row.SKU,
+                'Ítem': row['Ítem'],
+                Marca: row.Marca || null,
+                Modelo: row.Modelo || null,
+                Descripción: row.Descripción || null,
+                Unidad: row.Unidad || null,
+                Stock: parseInt(row.Stock, 10) || 0,
+                'Costo Unitario': parseFloat(row['Costo Unitario']) || 0,
+                MinStock: parseInt(row.MinStock, 10) || 0
+            }));
+            
+            // Reemplaza el inventario actual
+            inventory = newInventory;
+            saveInventory();
+            renderAll();
+            showNotification('Inventario importado con éxito. Se han actualizado los datos.');
+        };
+        reader.readAsBinaryString(file);
+    }
+
+    function exportHistoryToPDF() {
+        if (orderHistory.length === 0) {
+            showNotification('No hay historial para exportar.', true);
+            return;
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const pageHeight = doc.internal.pageSize.height;
+        const margin = 15;
+        let y = 0;
+
+        const addHeader = (docInstance) => {
+            docInstance.setFontSize(20);
+            docInstance.setFont('helvetica', 'bold');
+            docInstance.setTextColor(34, 211, 238);
+            docInstance.text('Historial de Pedidos', docInstance.internal.pageSize.width / 2, 20, { align: 'center' });
+            docInstance.setFontSize(10);
+            docInstance.setFont('helvetica', 'normal');
+            docInstance.setTextColor(156, 163, 175);
+            docInstance.text(`Generado el: ${new Date().toLocaleString('es-ES')}`, docInstance.internal.pageSize.width / 2, 27, { align: 'center' });
+            y = 40;
+        };
+
+        const addFooter = (docInstance) => {
+            const pageCount = docInstance.internal.getNumberOfPages();
+            for (let i = 1; i <= pageCount; i++) {
+                docInstance.setPage(i);
+                docInstance.setFontSize(8);
+                docInstance.setTextColor(156, 163, 175);
+                docInstance.text(`Página ${i} de ${pageCount}`, docInstance.internal.pageSize.width / 2, pageHeight - 10, { align: 'center' });
+            }
+        };
+        
+        addHeader(doc);
+
+        orderHistory.forEach(order => {
+            const textLinesForItems = order.items.reduce((acc, item) => {
+                const lines = doc.splitTextToSize(item.name, doc.internal.pageSize.width - (margin * 2) - 30);
+                return acc + lines.length;
+            }, 0);
+            
+            let metadataHeight = 8;
+            if (order.orderFor || order.project) metadataHeight += 7;
+
+            const estimatedHeight = metadataHeight + (textLinesForItems * 5) + (order.items.length * 2) + 15;
+
+            if (y + estimatedHeight > pageHeight - 20) {
+                addFooter(doc);
+                doc.addPage();
+                addHeader(doc);
+            }
+
+            doc.setFillColor(31, 41, 55);
+            doc.setDrawColor(75, 85, 99);
+            doc.roundedRect(margin, y - 7, doc.internal.pageSize.width - margin * 2, estimatedHeight, 3, 3, 'FD');
+
+            doc.setFontSize(12);
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(255, 255, 255);
+            doc.text(`Pedido del: ${order.date}`, margin + 5, y);
+            y += 7;
+
+            doc.setFontSize(9);
+            doc.setFont('helvetica', 'normal');
+            doc.setTextColor(209, 213, 219);
+            let metadataLine = '';
+            if (order.orderFor) metadataLine += `Para: ${order.orderFor}`;
+            if (order.project) metadataLine += `${order.orderFor ? '  |  ' : ''}Obra: ${order.project}`;
+            if (metadataLine) {
+                doc.text(metadataLine, margin + 5, y);
+                y += 7;
+            }
+
+            doc.setDrawColor(75, 85, 99);
+            doc.line(margin + 2, y, doc.internal.pageSize.width - margin - 2, y);
+            y += 6;
+
+            doc.setFont('helvetica', 'normal');
+            order.items.forEach(item => {
+                const itemNameLines = doc.splitTextToSize(item.name, doc.internal.pageSize.width - (margin * 2) - 30);
+                const itemLineHeight = (itemNameLines.length * 5);
+                
+                if (y + itemLineHeight > pageHeight - 25) {
+                    addFooter(doc);
+                    doc.addPage();
+                    addHeader(doc);
+                }
+                
+                doc.setTextColor(209, 213, 219);
+                doc.text(itemNameLines, margin + 5, y);
+                doc.setFont('helvetica', 'bold');
+                doc.text(item.quantity.toString(), doc.internal.pageSize.width - margin - 5, y, { align: 'right' });
+                doc.setFont('helvetica', 'normal');
+                y += itemLineHeight + 2;
+            });
+
+            y += 10;
+        });
+
+        addFooter(doc);
+        doc.save('historial_pedidos.pdf');
+    }
+
+    function renderLowStockChart() {
+        const ctx = document.getElementById('lowStockChart').getContext('2d');
+        const lowStockItems = inventory.filter(item => item.Stock > 0 && item.Stock < item.MinStock).sort((a, b) => a.Stock - b.Stock);
+
+        if (lowStockChartInstance) lowStockChartInstance.destroy();
+
+        if (lowStockItems.length === 0) {
+            document.getElementById('lowStockChart').style.display = 'none';
+            return;
+        } else {
+            document.getElementById('lowStockChart').style.display = 'block';
+        }
+
+        lowStockChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: lowStockItems.map(item => item['Ítem']),
+                datasets: [{
+                    label: 'Stock Actual',
+                    data: lowStockItems.map(item => item.Stock),
+                    backgroundColor: 'rgba(255, 159, 64, 0.5)',
+                    borderColor: 'rgba(255, 159, 64, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                scales: { x: { beginAtZero: true, ticks: { color: '#d1d5db' }, grid: { color: 'rgba(255,255,255,0.1)' } }, y: { ticks: { color: '#d1d5db' }, grid: { display: false } } },
+                plugins: { legend: { display: false } },
+                responsive: true, maintainAspectRatio: false
+            }
+        });
+    }
+
+    function showNotification(message, isError = false) {
+        notificationMessage.textContent = message;
+        notificationToast.classList.toggle('bg-red-500', isError);
+        notificationToast.classList.toggle('bg-gray-700', !isError);
+        notificationToast.classList.remove('translate-y-20', 'opacity-0');
+        setTimeout(() => {
+            notificationToast.classList.add('translate-y-20', 'opacity-0');
+        }, 3000);
+    }
+
+    // --- EVENT LISTENERS ---
+    document.addEventListener('DOMContentLoaded', initializeApp);
+    searchInput.addEventListener('input', handleSearch);
+    
+    document.querySelectorAll('.close-modal-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            closeModal(updateStockModal, modalContentUpdate);
+            closeModal(addToOrderModal, modalContentOrder);
+            closeModal(createMaterialModal, modalContentCreate);
+            closeModal(editMaterialModal, modalContentEditMaterial); // Nuevo modal
+            closeModal(confirmationModal, modalContentConfirm);
+        });
+    });
+    
+    itemList.addEventListener('click', (e) => {
+        const header = e.target.closest('.category-header');
+        if (header) {
+            const targetId = header.dataset.target;
+            const content = document.querySelector(targetId);
+            const chevron = header.querySelector('.chevron');
+            if (content) {
+                content.classList.toggle('hidden');
+                chevron.classList.toggle('rotate-180');
+            }
+        }
+    });
+
+    confirmUpdateBtn.addEventListener('click', handleStockUpdate);
+    confirmEditMaterialBtn.addEventListener('click', handleEditMaterial);
+    confirmOrderBtn.addEventListener('click', handleAddToOrder);
+    placeOrderBtn.addEventListener('click', handlePlaceOrder);
+    exportPdfBtn.addEventListener('click', exportHistoryToPDF);
+    exportExcelBtn.addEventListener('click', exportInventoryToExcel);
+    createBtn.addEventListener('click', window.openCreateModal);
+    saveNewMaterialBtn.addEventListener('click', handleCreateMaterial);
+    confirmDeleteBtn.addEventListener('click', handleDeleteMaterial);
+    
+    // Event listener para el botón de editar material dentro del modal de stock
+    editMaterialBtn.addEventListener('click', () => {
+        const itemId = parseInt(updateStockModal.dataset.itemId, 10);
+        closeModal(updateStockModal, modalContentUpdate);
+        openEditMaterialModal(itemId);
+    });
+
+    // Event listener para el nuevo botón de eliminar material dentro del modal de stock
+    deleteMaterialBtn.addEventListener('click', () => {
+        const itemId = parseInt(updateStockModal.dataset.itemId, 10);
+        closeModal(updateStockModal, modalContentUpdate);
+        window.confirmDelete(itemId);
+    });
+
+    // Nuevo Event Listener para el botón de importar CSV
+    importCsvBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', importInventoryFromCsv);
+
+</script>
+</body>
+</html>
